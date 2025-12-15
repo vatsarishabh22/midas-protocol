@@ -1,5 +1,5 @@
 # Start with Python
-FROM python:3.9-slim
+FROM python:3.10
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -14,5 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
 # 4. Run the application
-# We use port 7860 because that's what Hugging Face expects
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "application:app", "--host", "0.0.0.0", "--port", "7860"]
