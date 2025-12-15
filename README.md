@@ -1,12 +1,9 @@
----
-title: Midas Backend
-sdk: docker
-emoji: 🧠
-colorFrom: gray
-colorTo: yellow
-pinned: false
-app_port: 7860
----
+# Midas Protocol 🏆
 
-# Midas Backend
-API server of Midas Protocol
+A Multi-Agent System where:
+* **The Brain:** A FastAPI Backend (Docker) running AI Agents.
+* **The Face:** A Streamlit Frontend for user interaction.
+
+## Architecture
+* **Backend:** FastAPI, LangChain, Phyton 3.11
+* **Frontend:** Streamlit

@@ -5,13 +5,14 @@ FROM python:3.11
 WORKDIR /app
 
 # 1. Copy requirements from the 'backend' folder
-COPY backend/requirements.txt .
+COPY backend/requirements.txt /app/requirements.txt
 
 # 2. Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/requirements.txt
 
 # 3. Copy the rest of the backend code into the container
-COPY backend/ .
+COPY backend/ /app
 
 # 4. Run the application
 CMD ["uvicorn", "application:app", "--host", "0.0.0.0", "--port", "7860"]
