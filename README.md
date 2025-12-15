@@ -1,9 +1,11 @@
-# Midas Protocol 🏆
-
-A Multi-Agent System where:
-* **The Brain:** A FastAPI Backend (Docker) running AI Agents.
-* **The Face:** A Streamlit Frontend for user interaction.
-
-## Architecture
-* **Backend:** FastAPI, LangChain, Phyton 3.11
-* **Frontend:** Streamlit
+---
+title: Midas Frontend
+emoji: 📈
+colorFrom: green
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.41.1
+app_file: frontend/app.py
+pinned: false
+---
+# Midas Frontend UI"
