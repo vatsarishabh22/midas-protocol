@@ -1,4 +1,15 @@
-echo "# Financial Multi-Agent System 💸
+---
+title: Midas Frontend
+emoji: 📈
+colorFrom: green
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.40.1
+app_file: frontend/app.py
+pinned: false
+---
+
+# Financial Multi-Agent System 💸
 
 A professional Multi-Agent system orchestrated by Llama 3 (via Groq) or Gemini Pro.
 
