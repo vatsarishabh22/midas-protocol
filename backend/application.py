@@ -29,6 +29,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("SystemBackend")
 
+class ChatRequest(BaseModel):
+    query: str
+    provider: Optional[str] = None  
+    api_key: Optional[str] = None  
+
+class ChatResponse(BaseModel):
+    success: bool
+    response: Optional[str] = None
+    provider_used: Optional[str] = None
+    agent_used: Optional[str] = None
+    error_type: Optional[str] = None
+    required_provider: Optional[str] = None 
+    message: Optional[str] = None
+
 app = FastAPI()
 registry = initialize_registry()
 factory = AgentFactory(registry)
@@ -87,58 +101,128 @@ class ProviderManager:
                     return name
         return None
 
+    def is_provider_active(self, provider_name: str) -> bool:
+        if provider_name not in self.providers:
+            return False
+        state = self.providers[provider_name]
+        if state.status in [ProviderStatus.DOWN, ProviderStatus.QUOTA_EXHAUSTED]:
+            if time.time() > state.reset_time:
+                state.status = ProviderStatus.ACTIVE
+                return True
+            return False
+            
+        return state.status == ProviderStatus.ACTIVE
+
 provider_manager = ProviderManager()
 
 class RequestBody(BaseModel):
     query: str
     provider: Optional[str] = None 
+    api_key: Optional[str] = None  
+
+def has_server_key(name: str) -> bool:
+    if name == "groq" and os.getenv("GROQ_API_KEY"): return True
+    if name == "gemini" and os.getenv("GEMINI_API_KEY"): return True
+    return False
+
+def get_provider_instance(name: str, key: str):
+    if name == "groq": return GroqProvider(api_key=key)
+    elif name == "gemini": return GeminiProvider(api_key=key)
+    raise ValueError(f"Unknown provider: {name}")
 
 
-def get_provider_instance(provider_name: str):
-    if provider_name == "groq":
-        return GroqProvider(api_key=os.getenv("GROQ_API_KEY"))
-    elif provider_name == "gemini":
-        return GeminiProvider(api_key=os.getenv("GEMINI_API_KEY"))
-    else:
-        raise ValueError(f"Unknown provider: {provider_name}")
-
-
-@app.post("/chat")
-async def chat_endpoint(request: RequestBody):
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
     
-    while True:
-        current_provider_name = provider_manager.get_provider()
-        if current_provider_name is None:
-            raise HTTPException(status_code=503, detail="All LLM providers are down or exhausted.")
+    # CASE 1: MANUAL OVERRIDE (User specifically asked for a provider)
+    if request.provider:
+        target = request.provider.lower()
+        
+        # A. Check if valid/active
+        if not provider_manager.is_provider_active(target):
+            return ChatResponse(
+                success=False, 
+                error_type="provider_down", 
+                required_provider=target,
+                message=f"Requested provider '{target}' is currently unavailable (Down/Quota)."
+            )
+
+        # B. Resolve Key
+        final_key = request.api_key if request.api_key else None
+        if not final_key and has_server_key(target):
+            final_key = os.getenv(f"{target.upper()}_API_KEY")
             
+        if not final_key:
+            return ChatResponse(
+                success=False, 
+                error_type="needs_key", 
+                required_provider=target, 
+                message=f"API Key missing for {target}."
+            )
+
+        # C. Execute (NO LOOP - Fail fast if user preference fails)
         try:
-            logger.info(f"🔄 Routing request via Provider: {current_provider_name}")
-            provider = get_provider_instance(current_provider_name)
-            final_response = manager_agent.process_query(request.query, provider)
-            return {
-                "provider_used": current_provider_name,
-                "agent_used": manager_agent.name,
-                "query": request.query,
-                "response": final_response.content
-            }
-        except QuotaExhaustedError:
-            logger.warning(f"Provider {current_provider_name} Quota Exhausted. Switching...")
-            provider_manager.update_status(current_provider_name, ProviderStatus.QUOTA_EXHAUSTED)
-            continue
-
-        except ProviderDownError:
-            logger.warning(f"Provider {current_provider_name} is Down. Switching...")
-            provider_manager.update_status(current_provider_name, ProviderStatus.DOWN)
-            continue
-
-        except ProviderError as pe:
-            logger.error(f"Provider '{current_provider_name}' Error: {pe}")
-            provider_manager.update_status(current_provider_name, ProviderStatus.DOWN)
-            continue
-
+            logger.info(f"🔄 Executing User Preference: {target}")
+            llm = get_provider_instance(target, final_key)
+            result = manager_agent.process_query(request.query, llm)
+            return ChatResponse(
+                success=True, 
+                response=result.content, 
+                provider_used=target,
+                agent_used=manager_agent.name
+            )
+        except (QuotaExhaustedError, ProviderDownError) as e:
+            provider_manager.update_status(target, ProviderStatus.QUOTA_EXHAUSTED) # or check exception type
+            return ChatResponse(success=False, error_type="provider_down", message=str(e))
         except Exception as e:
-            logger.error(f"Critical Server Error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Server Error: {e}")
+            return ChatResponse(success=False, error_type="server_error", message=str(e))
+
+    # CASE 2: AUTO-PILOT (Loop through available providers)
+    else:
+        while True:
+            current = provider_manager.get_provider()
+            
+            if not current:
+                return ChatResponse(
+                    success=False, 
+                    error_type="all_down", 
+                    message="All providers are currently down or exhausted."
+                )
+            
+            # Check Key for the Auto-Selected candidate
+            final_key = None
+            if has_server_key(current):
+                final_key = os.getenv(f"{current.upper()}_API_KEY")
+            
+            if not final_key:
+                # If Auto-Router picks a provider we have no key for, we must ask the user.
+                return ChatResponse(
+                    success=False, 
+                    error_type="needs_key", 
+                    required_provider=current, 
+                    message=f"Auto-switching to {current}, but API Key is missing."
+                )
+
+            try:
+                logger.info(f"🔄 Auto-Routing via: {current}")
+                llm = get_provider_instance(current, final_key)
+                result = manager_agent.process_query(request.query, llm)
+                return ChatResponse(
+                    success=True, 
+                    response=result.content, 
+                    provider_used=current,
+                    agent_used=manager_agent.name
+                )
+            except QuotaExhaustedError:
+                provider_manager.update_status(current, ProviderStatus.QUOTA_EXHAUSTED)
+                continue # Try next in loop
+            except ProviderDownError:
+                provider_manager.update_status(current, ProviderStatus.DOWN)
+                continue # Try next in loop
+            except Exception as e:
+                logger.error(f"Critical Error: {e}")
+                return ChatResponse(success=False, error_type="server_error", message=str(e))
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 7860)) 

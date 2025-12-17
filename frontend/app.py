@@ -1,193 +1,202 @@
 import streamlit as st
 import requests
 import os
-from typing import Optional, Dict, List
-from dataclasses import dataclass
+from typing import Optional, List, Dict
+from dataclasses import dataclass, field
 
 @dataclass
-class AppConfig:
-    PAGE_TITLE: str = "Financial Agent Team"
-    PAGE_ICON: str = "📈"
-    # Use the environment variable or default to localhost
-    BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:7860/chat")
-    TIMEOUT: int = 120
+class ProviderConfig:
+    """
+    Defines the capabilities of a provider.
+    Future Proofing: Added 'models' list for granular selection.
+    """
+    key: str              # Internal ID (groq, gemini)
+    display_name: str     # UI Label
+    icon: str             # UI Icon
+    default_model: str    
+    available_models: List[str] = field(default_factory=list)
+
+AVAILABLE_PROVIDERS = [
+    ProviderConfig(
+        key="groq", 
+        display_name="Groq Cloud", 
+        icon="⚡", 
+        default_model="llama3-70b-8192",
+        available_models=["llama3-70b-8192", "mixtral-8x7b-32768"]
+    ),
+    ProviderConfig(
+        key="gemini", 
+        display_name="Google Gemini", 
+        icon="💎", 
+        default_model="gemini-pro",
+        available_models=["gemini-pro", "gemini-1.5-flash"]
+    ),
+]
 
 @dataclass
-class UserSession:
-    """Handles session state safely."""
+class AppSettings:
+    backend_url: str = os.getenv("BACKEND_URL", "http://localhost:7860/chat")
+    title: str = "Financial Multi-Agent System"
+
+class SessionManager:
+    """
+    Encapsulates all Streamlit Session State logic.
+    """
+    def __init__(self):
+        if "messages" not in st.session_state: st.session_state.messages = []
+        if "pending_query" not in st.session_state: st.session_state.pending_query = None
+    
     @property
-    def messages(self) -> List[Dict[str, str]]:
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-        return st.session_state.messages
-
+    def messages(self): return st.session_state.messages
+    
     def add_message(self, role: str, content: str):
-        self.messages.append({"role": role, "content": content})
-    
-    # NEW: Handling Pending Actions from Callbacks
-    @property
-    def pending_query(self) -> Optional[str]:
-        return st.session_state.get("pending_query", None)
-    
+        st.session_state.messages.append({"role": role, "content": content})
+
+    def get_api_key(self, provider_key: str) -> Optional[str]:
+        return st.session_state.get(f"key_{provider_key}", None)
+
+    def set_api_key(self, provider_key: str, key_value: str):
+        st.session_state[f"key_{provider_key}"] = key_value
+
     def set_pending_query(self, query: str):
         st.session_state.pending_query = query
-        
-    def clear_pending_query(self):
-        if "pending_query" in st.session_state:
-            del st.session_state.pending_query
 
-class BackendClient:
-    def __init__(self, base_url: str, timeout: int):
+    def pop_pending_query(self) -> Optional[str]:
+        q = st.session_state.pending_query
+        st.session_state.pending_query = None
+        return q
+
+class APIClient:
+    def __init__(self, base_url: str):
         self.base_url = base_url
-        self.timeout = timeout
 
-    def send_query(self, query: str, provider: str, api_key: str) -> Dict:
-        headers = {
-            "Content-Type": "application/json",
-            f"x-{provider.lower()}-api-key": api_key
-        }
-        payload = {"query": query, "provider": provider.lower()}
-
+    def send_chat(self, query: str, provider: str, api_key: Optional[str]) -> Dict:
         try:
-            response = requests.post(
-                self.base_url,
-                json=payload,
-                headers=headers,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            try:
-                return {"error": f"API Error: {e.response.json().get('detail', str(e))}"}
-            except:
-                return {"error": f"HTTP Error: {str(e)}"}
-        except requests.exceptions.ConnectionError:
-            return {"error": "Connection failed. Is the backend running?"}
+            # Future Proofing: Sending 'model' here requires updating backend first
+            payload = {
+                "query": query, 
+                "provider": provider, 
+                "api_key": api_key
+            }
+            res = requests.post(self.base_url, json=payload, timeout=120)
+            res.raise_for_status()
+            return res.json()
         except Exception as e:
-            return {"error": f"Unexpected Error: {str(e)}"}
+            # Return a consistent error structure
+            return {"success": False, "error_type": "client_error", "message": str(e)}
 
-class SidebarUI:
-    def __init__(self, session: UserSession):
-        self.session = session
-
-    def render(self) -> tuple[str, str]:
+class SidebarComponent:
+    def render(self, providers: List[ProviderConfig]) -> tuple[Optional[str], ProviderConfig]:
         with st.sidebar:
-            st.header("🔑 Authentication")
-            provider = st.radio("Select Provider", ["Groq", "Gemini"], index=0)
-            api_key = st.text_input(f"{provider} API Key", type="password")
+            st.header("⚙️ Configuration")
+            
+            # Dynamic Provider Selection
+            # This loops through config, making it extensible
+            provider_names = [p.display_name for p in providers]
+            selected_name = st.selectbox("Select Provider", provider_names)
+            
+            # Find the config object for the selected name
+            active_config = next(p for p in providers if p.display_name == selected_name)
+            
+            # Dynamic Model Selection (Future Proofing)
+            st.selectbox(f"{active_config.icon} Model", active_config.available_models)
+            
+            # API Key Input
+            api_key = st.text_input(
+                f"{active_config.display_name} Key", 
+                type="password",
+                help=f"Enter key for {active_config.key}"
+            )
             
             st.divider()
-            st.header("⚡ Quick Actions")
             
-            # CALLBACK PATTERN: 
-            # We use 'on_click' to set the state immediately.
-            # 'use_container_width=True' makes the button full width (clickable area).
-            
-            st.button(
-                "💰 Tesla vs Google Diff", 
-                on_click=self.session.set_pending_query,
-                args=("Get the current share price of Tesla and Google, and calculate the price difference between them.",),
-                use_container_width=True
-            )
-            
-            st.button(
-                "📰 Apple News Summary",
-                on_click=self.session.set_pending_query,
-                args=("Summarize the latest news headlines for Apple.",),
-                use_container_width=True
-            )
+            # Quick Actions (Could also be data-driven in future)
+            st.caption("Quick Tests")
+            if st.button("💰 TSLA Price Check"):
+                st.session_state.pending_query = "Check Tesla price"
                 
-            st.divider()
-            return api_key, provider
+            return api_key, active_config
 
-class ChatUI:
-    def render_header(self, provider: str):
-        st.title("💸 Financial Multi-Agent System")
-        
-        # DYNAMIC ARCHITECTURE DIAGRAM TEXT
-        # Displays the flow based on the selected provider
-        if provider == "Groq":
-            arch_text = "Architecture: Manager (Llama-3) → [Price Worker, News Worker] → Groq Cloud"
-        else:
-            arch_text = "Architecture: Manager (Gemini Pro) → [Price Worker, News Worker] → Google AI"
-            
-        st.caption(arch_text)
-        
-        # Visual Divider
-        st.markdown("---")
-
-    def render_messages(self, messages: List[Dict[str, str]]):
+class ChatComponent:
+    def render_history(self, messages):
         for msg in messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-class FinancialApp:
-    def __init__(self):
-        self.config = AppConfig()
-        self.session = UserSession()
-        self.client = BackendClient(self.config.BACKEND_URL, self.config.TIMEOUT)
-        self.sidebar = SidebarUI(self.session)
-        self.chat_ui = ChatUI()
+    def render_recovery_form(self, provider_key: str, message: str) -> Optional[str]:
+        """
+        Renders the 'Needs Key' form. Returns the new key if submitted.
+        """
+        with st.container():
+            st.warning(f"⚠️ {message}")
+            with st.form(f"fix_{provider_key}"):
+                val = st.text_input(f"Enter {provider_key.upper()} Key:", type="password")
+                if st.form_submit_button("Retry"):
+                    return val
+        return None
 
-        st.set_page_config(
-            page_title=self.config.PAGE_TITLE,
-            page_icon=self.config.PAGE_ICON,
-            layout="wide"
-        )
+class Application:
+    def __init__(self):
+        self.settings = AppSettings()
+        self.session = SessionManager()
+        self.client = APIClient(self.settings.backend_url)
+        self.sidebar = SidebarComponent()
+        self.chat = ChatComponent()
 
     def run(self):
-        # 1. Render Sidebar
-        api_key, provider = self.sidebar.render()
+        st.set_page_config(page_title=self.settings.title, layout="wide")
+        st.title(self.settings.title)
 
-        # 2. Render Header (Dynamic)
-        self.chat_ui.render_header(provider)
+        # 1. Sidebar
+        user_key, config = self.sidebar.render(AVAILABLE_PROVIDERS)
+        if user_key:
+            self.session.set_api_key(config.key, user_key)
 
-        # 3. Render History
-        self.chat_ui.render_messages(self.session.messages)
+        # 2. History
+        self.chat.render_history(self.session.messages)
 
-        # 4. Handle Input sources
-        # Priority: Pending Callback Query > Chat Input
-        active_query = self.session.pending_query
+        # 3. Input Handling
+        query = self.session.pop_pending_query() or st.chat_input("Input query...")
         
-        # If no pending query, check chat input
-        if not active_query:
-            active_query = st.chat_input("Ask a financial question...")
+        if query:
+            self.process_query(query, config)
 
-        # 5. Process Query
-        if active_query:
-            # Clear pending state so we don't loop
-            self.session.clear_pending_query()
-            
-            self.handle_interaction(active_query, api_key, provider)
-            
-            # Force refresh to show the result
-            st.rerun()
-
-    def handle_interaction(self, query: str, api_key: str, provider: str):
-        if not api_key:
-            st.warning(f"⚠️ Please enter your {provider} API Key in the sidebar.")
-            return
-
-        # 1. Optimistic Update (Show user question immediately)
+    def process_query(self, query: str, config: ProviderConfig):
+        # Optimistic UI Update
         self.session.add_message("user", query)
-        with st.chat_message("user"):
-            st.markdown(query)
-        
-        # 2. Backend Call
+        with st.chat_message("user"): st.markdown(query)
+
         with st.chat_message("assistant"):
             placeholder = st.empty()
-            placeholder.markdown("🕵️ *Manager is coordinating agents...*")
+            placeholder.markdown("⏳ *Thinking...*")
+
+            # Resolve Key: User Input > Session Store
+            # This allows the sidebar input to override everything
+            final_key = self.session.get_api_key(config.key)
+
+            # API Call
+            response = self.client.send_chat(query, config.key, final_key)
+
+            # Handle Response
+            if response.get("success"):
+                content = response["response"]
+                placeholder.markdown(content)
+                self.session.add_message("assistant", content)
             
-            result = self.client.send_query(query, provider, api_key)
-            
-            if "error" in result:
-                placeholder.error(result["error"])
+            elif response.get("error_type") == "needs_key":
+                placeholder.empty()
+                new_key = self.chat.render_recovery_form(
+                    response["required_provider"], 
+                    response["message"]
+                )
+                if new_key:
+                    # Save and Retry
+                    self.session.set_api_key(response["required_provider"], new_key)
+                    self.session.set_pending_query(query)
+                    st.rerun()
             else:
-                final_response = result.get("response", "No response received.")
-                placeholder.markdown(final_response)
-                self.session.add_message("assistant", final_response)
+                placeholder.error(f"❌ {response.get('message')}")
 
 if __name__ == "__main__":
-    app = FinancialApp()
+    app = Application()
     app.run()

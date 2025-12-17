@@ -1,0 +1,49 @@
+name: Deploy Midas Protocol
+
+on:
+  push:
+    branches: [main]
+    # Only trigger if relevant files change
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+  workflow_dispatch: # Allows manual triggering from GitHub UI
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    if: inputs.target == 'all' || inputs.target == 'backend' || contains(github.event.head_commit.modified, 'backend/')
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      - name: Push to HF Backend Space
+        uses: main-branch/push-to-huggingface-space@v2
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        with:
+          hf_username: RishabhInCode
+          hf_space_name: midas-backend # Name of your HF Space
+          source_dir: "backend"        # IMPORTANT: Only pushes this folder to root
+          target_branch: "main"
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    if: inputs.target == 'all' || inputs.target == 'frontend' || contains(github.event.head_commit.modified, 'frontend/')
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      - name: Push to HF Frontend Space
+        uses: main-branch/push-to-huggingface-space@v2
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        with:
+          hf_username: RishabhInCode
+          hf_space_name: midas-frontend # Name of your HF Space
+          source_dir: "frontend"        # IMPORTANT: Only pushes this folder to root
+          target_branch: "main"
