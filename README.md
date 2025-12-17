@@ -1,15 +1,3 @@
-This is the final touch of professionalism. A great `README.md` is the difference between a "script" and a "product."
-
-Here is a comprehensive, developer-focused `README.md` for the root of your repository. It synthesizes every architectural decision, pattern, and feature we have built.
-
-### **Action Plan**
-
-1. **Copy** the content below.
-2. **Overwrite** your current root `README.md`.
-3. **Commit & Push:** `git add README.md`, `git commit -m "docs: update global readme"`, `git push`.
-
----
-
 # 🦁 Midas Protocol
 
 **A Production-Grade Financial Multi-Agent System**
