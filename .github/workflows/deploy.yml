@@ -3,11 +3,10 @@ name: Deploy Midas Protocol
 on:
   push:
     branches: [main]
-    # Only trigger if relevant files change
     paths:
       - 'backend/**'
       - 'frontend/**'
-  workflow_dispatch: # Allows manual triggering from GitHub UI
+  workflow_dispatch:
 
 jobs:
   deploy-backend:
@@ -25,23 +24,16 @@ jobs:
           HF_SPACE_NAME: midas-backend
         run: |
           echo "🚀 Deploying Backend..."
-          
-          # 1. Move into the backend folder
           cd backend
-          
-          # 2. Initialize a fresh git repo inside this folder
-          # This trick makes 'backend/' look like the ROOT of a new repo
           git init
+          # --- FIX: Rename default branch to 'main' ---
+          git branch -m main
+          # ------------------------------------------
           git lfs install
           git config user.email "bot@midas-protocol.com"
           git config user.name "Midas Deploy Bot"
-          
-          # 3. Add all files in this folder
           git add .
           git commit -m "Deploy: ${{ github.sha }}"
-          
-          # 4. Force Push to Hugging Face
-          # We use --force because we are overwriting the history every time (Mirroring)
           git push --force https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME main
 
   deploy-frontend:
@@ -61,6 +53,9 @@ jobs:
           echo "🚀 Deploying Frontend..."
           cd frontend
           git init
+          # --- FIX: Rename default branch to 'main' ---
+          git branch -m main
+          # ------------------------------------------
           git lfs install
           git config user.email "bot@midas-protocol.com"
           git config user.name "Midas Deploy Bot"
