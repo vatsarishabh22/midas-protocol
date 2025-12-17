@@ -152,6 +152,8 @@ async def chat_endpoint(request: ChatRequest):
         if not final_key and has_server_key(target):
             final_key = os.getenv(f"{target.upper()}_API_KEY")
             
+        logger.info(f"🔍 DEBUG CHECK: Target={target}, Key_Type={type(final_key)}, Has_Key={bool(final_key)}")
+
         if not final_key:
             return ChatResponse(
                 success=False, 
