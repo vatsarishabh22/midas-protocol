@@ -12,6 +12,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# This ARG changes whenever force rebuild is needed. 
+# We don't even need to pass a value; just the existence of a changed line forces a rebuild.
+ARG CACHEBUST=20251217 
+
 # 3. Copy the rest of the code (Current folder -> /app)
 COPY . .
 

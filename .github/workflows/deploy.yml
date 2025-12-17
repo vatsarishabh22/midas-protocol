@@ -27,7 +27,9 @@ jobs:
           hf_username: RishabhInCode
           hf_space_name: midas-backend # Name of your HF Space
           source_dir: "backend"        # IMPORTANT: Only pushes this folder to root
+          commit_message: "Force deploy: Cache bust and code sync" # Optional but helpful
           target_branch: "main"
+          force_push: "true"
 
   deploy-frontend:
     runs-on: ubuntu-latest
