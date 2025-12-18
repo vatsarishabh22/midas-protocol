@@ -20,9 +20,9 @@ The project follows a **Client-Server Microservices** pattern, deployed via a Mo
 * **Orchestration:** Custom `ManagerAgent` implementing the **Composite Pattern**.
 * **Reasoning:** Recursive delegation loop. The Manager treats Sub-Agents as "Tools" and can delegate tasks dynamically.
 * **Resilience:**
-* **Circuit Breaker:** Tracks provider health (`ACTIVE`, `DOWN`, `QUOTA_EXHAUSTED`).
-* **Auto-Routing:** Automatically switches from Groq (Llama-3) to Gemini (Pro) if rate limits are hit.
-* **Request-Scoped Auth:** API Keys are injected per request to prevent cross-user state pollution in serverless environments.
+    * **Circuit Breaker:** Tracks provider health (`ACTIVE`, `DOWN`, `QUOTA_EXHAUSTED`).
+    * **Auto-Routing:** Automatically switches from Groq (Llama-3) to Gemini (Pro) if rate limits are hit.
+    * **Request-Scoped Auth:** API Keys are injected per request to prevent cross-user state pollution in serverless environments.
 
 
 
@@ -43,6 +43,23 @@ The project follows a **Client-Server Microservices** pattern, deployed via a Mo
 
 * **Optimization:** Uses `ARG CACHEBUST` in Docker to force strict code updates on cloud providers.
 
+---
+
+## ⚙️ Configuration (Low-Code Agent Expansion)
+
+Midas uses a **Data-Driven Architecture**. New agents can be added without writing Python code, simply by editing `backend/agents.yaml`. The `AgentFactory` automatically instantiates them and registers their tools.
+
+```yaml
+# Example: Adding a new Crypto Analyst
+agents:
+  - name: "CryptoWorker"
+    model: "llama-3.3-70b-versatile"
+    description: "Expert in cryptocurrency markets."
+    subscriptions:
+      - "crypto_tools"  # Automatically subscribes to registered crypto tools
+      - "utils"
+    system_prompt: "You are a crypto expert. Focus on Bitcoin and ETH..."
+```
 ---
 
 ## 📂 Project Structure
@@ -85,6 +102,16 @@ midas-protocol/
 * **Strategy Pattern:** `LLMProvider` abstract base class allows hot-swapping between `GroqProvider` and `GeminiProvider`.
 * **Failover Logic:** If the primary provider fails (503/429), the system marks it as `DOWN` and immediately retries with the next available provider in the pool.
 * **Soft Error Handling:** Tool failures (e.g., "Ticker not found") are caught and returned as observations, allowing the Agent to self-correct rather than crashing.
+
+---
+
+## 🧠 Engineering Decisions & Trade-offs
+
+| Decision | Why I chose it | Trade-off |
+| :--- | :--- | :--- |
+| **Custom ReAct Engine** | Standard libraries (LangChain) hide logic and make debugging 3rd-party loops difficult. A custom engine allows precise control over the "Thought/Action" loop. | Requires writing more boilerplate code for parsing tool calls. |
+| **Monorepo (Subtree)** | Keeps Backend/Frontend sync simple during dev. Allows atomic commits. | Deployment is harder. **Solved via custom CI/CD script** that splits the repo during push. |
+| **TokenBufferMemory** | Using a simple List is dangerous for production (context overflow). Used `tiktoken` to count tokens exactly. | FIFO eviction means losing early context. (Future fix: Summarization Memory). |
 
 ---
 
