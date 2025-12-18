@@ -39,8 +39,6 @@ The project follows a **Client-Server Microservices** pattern, deployed via a Mo
 * Detects changes in `backend/` or `frontend/`.
 * Dynamically initializes a temporary git repo for the subfolder.
 * Force-pushes the specific folder to its corresponding **Hugging Face Space** (`midas-backend` or `midas-frontend`).
-
-
 * **Optimization:** Uses `ARG CACHEBUST` in Docker to force strict code updates on cloud providers.
 
 ---
