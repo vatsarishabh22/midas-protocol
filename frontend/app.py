@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import os
+import time
 from typing import Optional, List, Dict
 from dataclasses import dataclass, field
+from huggingface_hub import HfApi
 
 @dataclass
 class ProviderConfig:
@@ -36,7 +38,61 @@ AVAILABLE_PROVIDERS = [
 @dataclass
 class AppSettings:
     backend_url: str = os.getenv("BACKEND_URL", "http://localhost:7860/chat")
+    backend_repo_id: str = os.getenv("BACKEND_REPO_ID", "")
     title: str = "Financial Multi-Agent System"
+
+def ensure_backend_ready(settings: AppSettings):
+    # Skip if we've already verified the backend this session
+    if st.session_state.get("backend_ready", False):
+        return
+
+    health_url = settings.backend_url.rsplit('/', 1)[0] + "/docs"
+    hf_token = os.environ.get("HF_TOKEN")
+    
+    with st.status("Verifying system health...", expanded=True) as status:
+        try:
+            # Step 1: Fast Ping
+            status.write("Pinging backend services...")
+            res = requests.get(health_url, timeout=5)
+            res.raise_for_status()
+            
+            status.update(label="System is online and ready!", state="complete", expanded=False)
+            st.session_state.backend_ready = True
+            return
+            
+        except requests.exceptions.RequestException:
+            status.write("Backend is unresponsive. Initiating auto-recovery...")
+
+        # Step 2: Restart Sequence
+        if not hf_token or not settings.backend_repo_id:
+            status.update(label="Auto-recovery unavailable (Missing HF configs).", state="error")
+            return
+
+        try:
+            status.write(f"Calling Hugging Face API to wake {settings.backend_repo_id}...")
+            api = HfApi()
+            api.restart_space(repo_id=settings.backend_repo_id, token=hf_token)
+            status.write("Container restart initiated.")
+        except Exception as e:
+            status.update(label=f"Failed to trigger restart: {e}", state="error")
+            return
+
+        # Step 3: Active Polling
+        status.write("Waiting for backend container to spin up (this may take 1-2 minutes)...")
+        for attempt in range(1, 25): # 24 attempts * 5 seconds = 2 minutes max
+            status.write(f"Polling attempt {attempt}/24...")
+            try:
+                res = requests.get(health_url, timeout=3)
+                if res.status_code == 200:
+                    status.update(label="Auto-recovery successful! System is ready.", state="complete", expanded=False)
+                    st.session_state.backend_ready = True
+                    return
+            except requests.exceptions.RequestException:
+                pass # Expected while booting
+                
+            time.sleep(5)
+
+        status.update(label="System recovery timed out. Please refresh the page.", state="error")
 
 class SessionManager:
     """
@@ -146,6 +202,8 @@ class Application:
     def run(self):
         st.set_page_config(page_title=self.settings.title, layout="wide")
         st.title(self.settings.title)
+
+        ensure_backend_ready(self.settings)
 
         # 1. Sidebar
         user_key, config = self.sidebar.render(AVAILABLE_PROVIDERS)
